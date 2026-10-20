@@ -73,7 +73,40 @@ body[data-ds-dark-theme] .mwt-wallpaper {
       failed: 'Could not switch Wife Mode. Try again.',
     };
 
-    function Wallpaper() {
+    /**
+     * One in-page store for the switch, shared by the composer control and the
+     * wallpaper layer: the control owns the current Session, the layer only
+     * paints when that Session is on. `ids` is null until the first read lands.
+     */
+    const wifeState = { ids: null, current: null, loading: null };
+    const wifeSubscribers = new Set();
+
+    function publish(patch) {
+      Object.assign(wifeState, patch);
+      for (const listener of [...wifeSubscribers]) listener();
+    }
+
+    /** Re-render the caller on every switch change. */
+    function useWifeState() {
+      const [, bump] = React.useState(0);
+      React.useEffect(() => {
+        const listener = () => bump((value) => value + 1);
+        wifeSubscribers.add(listener);
+        return () => {
+          wifeSubscribers.delete(listener);
+        };
+      }, []);
+      return wifeState;
+    }
+
+    /**
+     * The right-edge portrait. It only exists while the current Session is on,
+     * so the plain UI stays untouched everywhere else.
+     */
+    function WallpaperLayer() {
+      const state = useWifeState();
+      const active = !!(state.ids && state.current && state.ids.has(state.current));
+      if (!active) return null;
       return h(
         React.Fragment,
         null,
@@ -175,44 +208,69 @@ body[data-ds-dark-theme] .mwt-wallpaper {
      * @returns the control component.
      */
     function createWifeModeControl(options) {
-      const { settings, t, locale } = options;
+      const { settings, t, locale, theme } = options;
 
       return function WifeModeControl(props) {
         const sessionId = props && props.sessionId ? String(props.sessionId) : '';
-        const [on, setOn] = React.useState(null);
+        const state = useWifeState();
         const [busy, setBusy] = React.useState(false);
         const [, tick] = React.useState(0);
+
+        const on = !!(state.ids && sessionId && state.ids.has(sessionId));
+        const active = on && state.current === sessionId;
 
         React.useEffect(() => {
           if (!locale || typeof locale.subscribe !== 'function') return undefined;
           return locale.subscribe(() => tick((value) => value + 1));
         }, []);
 
+        // This control is mounted only for the Session on screen, so it owns
+        // both the shared "current Session" and the first settings read.
         React.useEffect(() => {
           if (!sessionId) return undefined;
-          let alive = true;
-          readSessions(settings).then(
-            (ids) => {
-              if (alive) setOn(ids.includes(sessionId));
-            },
-            () => {},
-          );
+          publish({ current: sessionId });
+          if (wifeState.ids === null && !wifeState.loading) {
+            wifeState.loading = readSessions(settings).then(
+              (ids) => {
+                publish({ ids: new Set(ids), loading: null });
+              },
+              () => {
+                wifeState.loading = null;
+              },
+            );
+          }
           return () => {
-            alive = false;
+            if (wifeState.current === sessionId) publish({ current: null });
           };
         }, [sessionId]);
 
+        // The poster palette exists only while this Session is on. Removing the
+        // layer on unmount or switch restores the host theme immediately.
+        React.useEffect(() => {
+          if (!active || !theme) return undefined;
+          const remove = theme.overrideTokens('mist-whale-theme', TOKENS);
+          return () => remove();
+        }, [active]);
+
         const toggle = React.useCallback(() => {
           if (busy || !sessionId) return;
-          const next = on !== true;
+          const next = !on;
+          const optimistic = new Set(wifeState.ids || []);
+          if (next) optimistic.add(sessionId);
+          else optimistic.delete(sessionId);
           setBusy(true);
-          setOn(next);
+          publish({ ids: optimistic });
           writeSessionMode(settings, sessionId, next)
-            .catch(() => setOn(!next))
+            .then(() => readSessions(settings))
+            .then((ids) => publish({ ids: new Set(ids) }))
+            .catch(() => {
+              const reverted = new Set(wifeState.ids || []);
+              if (next) reverted.delete(sessionId);
+              else reverted.add(sessionId);
+              publish({ ids: reverted });
+            })
             .then(() => setBusy(false));
         }, [busy, on, sessionId]);
-
-        const active = on === true;
         const label = t('label', DICT_ZH.label);
 
         return h(
@@ -251,9 +309,7 @@ body[data-ds-dark-theme] .mwt-wallpaper {
     return {
       inject: ['theme', 'slots'],
       apply(ctx) {
-        const removePalette = ctx.theme.overrideTokens('mist-whale-theme', TOKENS);
-        ctx.effect(() => removePalette);
-
+        const theme = ctx.theme;
         const locale = ctx.get('locale');
         if (locale) {
           const addDict = (id, dict) => {
@@ -281,14 +337,14 @@ body[data-ds-dark-theme] .mwt-wallpaper {
         ctx.slots.inject('shell.overlay', () =>
           ctx.slots.register(
             { name: 'shell.overlay', id: 'mist-whale-wallpaper', order: -100 },
-            Wallpaper,
+            WallpaperLayer,
           ),
         );
 
         // `ctx.get` reads a namespaced service without the façade property
         // guard, which rejects `remote.settings` unless the name is injected.
         const settings = ctx.get('remote.settings');
-        const WifeModeControl = createWifeModeControl({ settings, t: translate, locale });
+        const WifeModeControl = createWifeModeControl({ settings, t: translate, locale, theme });
         ctx.slots.inject('conversation.input.right', () =>
           ctx.slots.register(
             { name: 'conversation.input.right', id: 'mist-whale-wife-mode', order: 30 },

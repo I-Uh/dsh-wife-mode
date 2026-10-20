@@ -1,6 +1,6 @@
 {
   "name": "dsh-wife-mode",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Mist-blue whale theme for the DSH Web client: poster palette, right-edge wallpaper, and a per-conversation Wife Mode that adds a persona to the system prompt.",
   "type": "module",

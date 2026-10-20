@@ -14,8 +14,8 @@
 
 ## 功能
 
-- **主题配色**：只覆盖 `--dsw-alias-*` / `--dsw-specific-sidebar-fill` 共 14 个别名 token，浅色与深色成对给出，不碰任何组件几何与行为
-- **右侧壁纸**：海报裁成的竖条，固定在视口右侧、鼠标穿透、左缘渐变淡出；浮层顺序 `-100`，在所有 toast / 弹窗之下
+- **主题配色**：只覆盖 `--dsw-alias-*` / `--dsw-specific-sidebar-fill` 共 14 个别名 token，浅色与深色成对给出，不碰任何组件几何与行为——**只在人妻模式开启的会话里生效**
+- **右侧壁纸**：海报裁成的竖条，固定在视口右侧、鼠标穿透、左缘渐变淡出；浮层顺序 `-100`，在所有 toast / 弹窗之下——同样只在人妻模式开启的会话里出现
 - **人妻模式开关**：输入框工具行最右侧的小胶囊 `♡ 人妻模式`；状态按**会话 id** 存，A 会话开、B 会话关互不影响，子代理默认不吃人格
 - **人格提示**：开启后，该会话的系统提示里多出一段角色设定（称呼、性格、爱好、口头禅参考）以及四条底线（技术准确优先、先答案后语气、严肃话题回退、不假装是人类）
 
@@ -35,18 +35,20 @@ plugin_manager install_bundle(target: "<本仓库的绝对路径>")
 
 **人妻模式**：在任意会话的输入框右下方点 `♡ 人妻模式`。
 
-- 点亮 = 本会话开启，下一次模型请求起就带人格
-- 再点一次 = 本会话关闭，立即回到普通语气
+- 点亮 = 本会话开启：界面换成海报配色、右侧出现立绘，从下一次模型请求起带人格
+- 再点一次 = 本会话关闭：配色与立绘立即撤掉，回复也回到普通语气
 - 面板位置：`conversation.input.right`；状态存在设置文档的 `sessions` 数组里
 
-主题与壁纸是全局的，跟着插件启用/停用；配色想微调，改 `src/client.template.js` 顶部的 `TOKENS` 后重新构建即可。
+外观跟着**当前会话**的开关走：切到没开启的会话，界面就是 dsh 原样。
+
+配色想微调，改 `src/client.template.js` 顶部的 `TOKENS` 后重新构建即可。
 
 ## 工作原理
 
 | 能力 | 挂载点 | 说明 |
 | --- | --- | --- |
-| 配色 | `ctx.theme.overrideTokens` | 叠加别名 token 层，不修改注册表；卸载即还原 |
-| 壁纸 | `shell.overlay` 槽位 | 固定定位 + `pointer-events: none` + `mask-image` 淡出 |
+| 配色 | `ctx.theme.overrideTokens` | 仅在当前会话开启时叠加该层，关闭或切走即还原，不修改主题注册表 |
+| 壁纸 | `shell.overlay` 槽位 | 仅在当前会话开启时渲染；固定定位 + `pointer-events: none` + `mask-image` 淡出 |
 | 开关 UI | `conversation.input.right` 槽位 | 通过 `remote.settings.update('mist-whale-theme', …)` 写入 |
 | 人格 | `systemPrompt.section` | `text(context)` 按 `context.scope.id`（即会话 id）返回人格或空串 |
 
@@ -93,13 +95,14 @@ python scripts/crop.py [海报路径] # 换素材后重裁，再执行构建
 ## 验证状态
 
 - `test/host.test.mjs`：会话 A/B 的开关矩阵、无 scope、无 id 均通过
-- 运行时检查：Config schema 为 volatile 数组、`conversation.input.right` 注册存在、壁纸与配色覆盖层已挂载
+- 运行时检查：Config schema 为 volatile 数组、`conversation.input.right` 注册存在；开启会话时壁纸层才挂载（关闭时为 idle）
 - 端到端：开启后该会话的系统提示中确实出现人格段落；关闭后消失
 - 视觉细节（不同分辨率下的壁纸浓淡、按钮在窄窗口中的排布）未经像素级验证
 
 ## 已知限制
 
 - 会话删除后其 id 会留在 `sessions` 数组里，需要手动关一次才会移除
+- 没有打开任何会话时（比如停在 Plugins 页），开关组件不挂载，外观回到 dsh 默认
 - 壁纸是浮层上的半透明薄纱，而不是真正的窗口背景；这是 `shell.overlay` 的层级决定的
 - 人格是会话级的，同一会话内的子代理默认不带
 
@@ -115,8 +118,12 @@ A DSH Web client theme plugin: the mist-blue palette and right-edge wallpaper cr
 "Wife Mode" poster, plus a **per-conversation** Wife Mode switch in the composer that appends a
 persona section (extracted from the poster) to that session's system prompt.
 
-- Palette: 14 alias tokens, light and dark pairs, applied through `ctx.theme.overrideTokens`
-- Wallpaper: a fixed, click-through band in `shell.overlay`, masked at its left edge
+Both visual effects belong to the switch: the palette and the portrait appear only while the
+conversation on screen has Wife Mode on, and are removed when it is turned off or another
+conversation is opened.
+
+- Palette: 14 alias tokens, light and dark pairs, applied through `ctx.theme.overrideTokens` while the current Session is on
+- Wallpaper: a fixed, click-through band in `shell.overlay`, rendered only while the current Session is on
 - Switch: `conversation.input.right`, state stored per Session id in the `sessions` settings array
 - Persona: `systemPrompt.section` whose text is gated by `context.scope.id`
 
