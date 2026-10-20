@@ -39,7 +39,7 @@ plugin_manager install_bundle(target: "<本仓库的绝对路径>")
 - 再点一次 = 本会话关闭：配色与立绘立即撤掉，回复也回到普通语气
 - 面板位置：`conversation.input.right`；状态存在设置文档的 `sessions` 数组里
 
-外观跟着**当前会话**的开关走：切到没开启的会话，界面就是 dsh 原样。
+外观跟着**最近打开的那个会话**的开关走：切到没开启的会话，界面就是 dsh 原样；离开会话（设置、插件页等非会话界面）时保持最后一次的外观，刷新后也会按上次的会话恢复。
 
 配色想微调，改 `src/client.template.js` 顶部的 `TOKENS` 后重新构建即可。
 
@@ -102,9 +102,9 @@ python scripts/crop.py [海报路径] # 换素材后重裁，再执行构建
 ## 已知限制
 
 - 会话删除后其 id 会留在 `sessions` 数组里，需要手动关一次才会移除
-- 没有打开任何会话时（比如停在 Plugins 页），开关组件不挂载，外观回到 dsh 默认
 - 壁纸是浮层上的半透明薄纱，而不是真正的窗口背景；这是 `shell.overlay` 的层级决定的
 - 人格是会话级的，同一会话内的子代理默认不带
+- 「最近会话」记在浏览器 localStorage（`dsh-wife-mode.last-session`），换浏览器或清空存储后会回到默认，直到再次打开会话
 
 ## 授权
 
@@ -118,9 +118,10 @@ A DSH Web client theme plugin: the mist-blue palette and right-edge wallpaper cr
 "Wife Mode" poster, plus a **per-conversation** Wife Mode switch in the composer that appends a
 persona section (extracted from the poster) to that session's system prompt.
 
-Both visual effects belong to the switch: the palette and the portrait appear only while the
-conversation on screen has Wife Mode on, and are removed when it is turned off or another
-conversation is opened.
+Both visual effects belong to the switch: the palette and the portrait appear while the
+conversation most recently opened has Wife Mode on, stay in place on non-conversation panels
+(Settings, Plugins) and after a reload, and are removed when another conversation without it is
+opened or the switch is turned off.
 
 - Palette: 14 alias tokens, light and dark pairs, applied through `ctx.theme.overrideTokens` while the current Session is on
 - Wallpaper: a fixed, click-through band in `shell.overlay`, rendered only while the current Session is on

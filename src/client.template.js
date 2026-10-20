@@ -99,25 +99,84 @@ body[data-ds-dark-theme] .mwt-wallpaper {
       return wifeState;
     }
 
-    /**
-     * The right-edge portrait. It only exists while the current Session is on,
-     * so the plain UI stays untouched everywhere else.
-     */
-    function WallpaperLayer() {
-      const state = useWifeState();
-      const active = !!(state.ids && state.current && state.ids.has(state.current));
-      if (!active) return null;
-      return h(
-        React.Fragment,
-        null,
-        h('style', { key: 'style' }, WALLPAPER_CSS),
-        h('div', {
-          key: 'art',
-          className: 'mwt-wallpaper',
-          'aria-hidden': 'true',
-          style: { backgroundImage: 'url("' + WALLPAPER + '")' },
-        }),
+    /** Remembered across reloads so a cold start keeps the last look. */
+    const LAST_SESSION_KEY = 'dsh-wife-mode.last-session';
+
+    /** Read the enabled list once; later mounts reuse it. */
+    function ensureIds(settings) {
+      if (wifeState.ids !== null || wifeState.loading) return;
+      wifeState.loading = readSessions(settings).then(
+        (ids) => {
+          publish({ ids: new Set(ids), loading: null });
+        },
+        () => {
+          wifeState.loading = null;
+        },
       );
+    }
+
+    function readLastSession() {
+      try {
+        return window.localStorage.getItem(LAST_SESSION_KEY);
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function rememberSession(sessionId) {
+      try {
+        window.localStorage.setItem(LAST_SESSION_KEY, sessionId);
+      } catch (error) {
+        /* storage is optional */
+      }
+    }
+
+    /**
+     * Build the always-mounted visual layer. It owns both the palette override
+     * and the portrait, so the look survives leaving the conversation: the
+     * widget only unmounts together with the plugin.
+     * @param options - the theme service and the settings namespace service.
+     * @returns the layer component.
+     */
+    function createWallpaperLayer(options) {
+      const { theme, settings } = options;
+
+      return function WallpaperLayer() {
+        const state = useWifeState();
+        const active = !!(state.ids && state.current && state.ids.has(state.current));
+
+        // A cold start may open on a non-conversation panel: restore the last
+        // Session from storage and read the switch list here as well, so the
+        // look is right without waiting for a composer to mount.
+        React.useEffect(() => {
+          if (!wifeState.current) {
+            const last = readLastSession();
+            if (last) publish({ current: last });
+          }
+          ensureIds(settings);
+        }, []);
+
+        // The palette belongs to the switch, not to the plugin: it is stacked
+        // while the last shown Session is on and removed the moment it is not.
+        React.useEffect(() => {
+          if (!active || !theme) return undefined;
+          const remove = theme.overrideTokens('mist-whale-theme', TOKENS);
+          return () => remove();
+        }, [active]);
+
+        if (!active) return null;
+        return h(
+          React.Fragment,
+          null,
+          h('style', { key: 'style' }, WALLPAPER_CSS),
+          h('div', {
+            key: 'art',
+            className: 'mwt-wallpaper',
+            'aria-hidden': 'true',
+            style: { backgroundImage: 'url("' + WALLPAPER + '")' },
+          }),
+        );
+      };
     }
 
     /**
@@ -208,7 +267,7 @@ body[data-ds-dark-theme] .mwt-wallpaper {
      * @returns the control component.
      */
     function createWifeModeControl(options) {
-      const { settings, t, locale, theme } = options;
+      const { settings, t, locale } = options;
 
       return function WifeModeControl(props) {
         const sessionId = props && props.sessionId ? String(props.sessionId) : '';
@@ -224,33 +283,17 @@ body[data-ds-dark-theme] .mwt-wallpaper {
           return locale.subscribe(() => tick((value) => value + 1));
         }, []);
 
-        // This control is mounted only for the Session on screen, so it owns
-        // both the shared "current Session" and the first settings read.
+        // This control is mounted only for the Session on screen, so it owns the
+        // shared "last shown Session" and the first settings read. That value is
+        // deliberately not cleared on unmount: leaving the conversation keeps
+        // the look of whatever was last on screen.
         React.useEffect(() => {
           if (!sessionId) return undefined;
           publish({ current: sessionId });
-          if (wifeState.ids === null && !wifeState.loading) {
-            wifeState.loading = readSessions(settings).then(
-              (ids) => {
-                publish({ ids: new Set(ids), loading: null });
-              },
-              () => {
-                wifeState.loading = null;
-              },
-            );
-          }
-          return () => {
-            if (wifeState.current === sessionId) publish({ current: null });
-          };
+          rememberSession(sessionId);
+          ensureIds(settings);
+          return undefined;
         }, [sessionId]);
-
-        // The poster palette exists only while this Session is on. Removing the
-        // layer on unmount or switch restores the host theme immediately.
-        React.useEffect(() => {
-          if (!active || !theme) return undefined;
-          const remove = theme.overrideTokens('mist-whale-theme', TOKENS);
-          return () => remove();
-        }, [active]);
 
         const toggle = React.useCallback(() => {
           if (busy || !sessionId) return;
@@ -334,6 +377,11 @@ body[data-ds-dark-theme] .mwt-wallpaper {
           }
         };
 
+        // `ctx.get` reads a namespaced service without the façade property
+        // guard, which rejects `remote.settings` unless the name is injected.
+        const settings = ctx.get('remote.settings');
+
+        const WallpaperLayer = createWallpaperLayer({ theme, settings });
         ctx.slots.inject('shell.overlay', () =>
           ctx.slots.register(
             { name: 'shell.overlay', id: 'mist-whale-wallpaper', order: -100 },
@@ -341,10 +389,7 @@ body[data-ds-dark-theme] .mwt-wallpaper {
           ),
         );
 
-        // `ctx.get` reads a namespaced service without the façade property
-        // guard, which rejects `remote.settings` unless the name is injected.
-        const settings = ctx.get('remote.settings');
-        const WifeModeControl = createWifeModeControl({ settings, t: translate, locale, theme });
+        const WifeModeControl = createWifeModeControl({ settings, t: translate, locale });
         ctx.slots.inject('conversation.input.right', () =>
           ctx.slots.register(
             { name: 'conversation.input.right', id: 'mist-whale-wife-mode', order: 30 },
