@@ -1,0 +1,57 @@
+{
+  "name": "dsh-wife-mode",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mist-blue whale theme for the DSH Web client: poster palette, right-edge wallpaper, and a per-conversation Wife Mode that adds a persona to the system prompt.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/I-Uh/dsh-wife-mode.git"
+  },
+  "homepage": "https://github.com/I-Uh/dsh-wife-mode#readme",
+  "bugs": {
+    "url": "https://github.com/I-Uh/dsh-wife-mode/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "theme",
+    "persona"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "scripts": {
+    "build": "node scripts/build-client.mjs",
+    "test": "node test/host.test.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-theme",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "~3.18.5"
+  }
+}
